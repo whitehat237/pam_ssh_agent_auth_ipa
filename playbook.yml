@@ -1,0 +1,41 @@
+- name: pam_ssh_agent_auth_ipa
+  hosts: "{{ ansible_limit | default(omit) }}"
+  become: true
+
+  tasks:
+
+  - name: Check if machine is using IPA as an ID provider
+    ansible.builtin.lineinfile:
+      dest: /etc/sssd/sssd.conf
+      state: present
+      regexp: 'id_provider'
+      line: 'id_provider = ipa'
+    check_mode: true
+    register: id_provider
+
+  - name: End play for host when IPA is not used as ID provider
+    ansible.builtin.meta: end_host
+    when: id_provider.changed
+
+  - name: Ensure pam_ssh_agent_auth package is installed
+    ansible.builtin.package:
+      name: pam_ssh_agent_auth
+      state: installed
+
+  - name: Ensure /etc/sudoers has SSH_AUTH_SOCK environment variable enabled
+    ansible.builtin.lineinfile:
+      dest: /etc/sudoers
+      state: present
+      regexp: SSH_AUTH_SOCK
+      insertafter: ^.*?\bDefaults\b.*?\bXAUTHORITY\b.*?$
+      line: Defaults    env_keep += "SSH_AUTH_SOCK"
+
+  - name: Ensure /etc/pam.d/sudo uses ssh_agent_auth library and sssd key lookup
+    ansible.builtin.lineinfile:
+      dest: /etc/pam.d/sudo
+      state: present
+      regexp: pam_ssh_agent_auth.so
+      insertafter: ^(#%PAM).*$
+      line: auth       sufficient   pam_ssh_agent_auth.so authorized_keys_command=/usr/bin/sss_ssh_authorizedkeys
+
+...
